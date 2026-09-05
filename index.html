@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Statecraft — Government Sandbox</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css?v=electorates" />
+</head>
+<body>
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <p class="kicker">Independent sandbox · not linked to Parliament Sim</p>
+        <h1>Statecraft</h1>
+        <p class="tag">A 13-seat chamber, a public mood, and a budget you control.</p>
+      </div>
+      <nav class="tabs" role="tablist">
+        <button type="button" class="tab is-active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
+        <button type="button" class="tab" data-tab="calculator" role="tab" aria-selected="false">Budget calculator</button>
+        <button type="button" class="tab" data-tab="electorates" role="tab" aria-selected="false">Electorates</button>
+        <button type="button" class="tab" data-tab="estimator" role="tab" aria-selected="false">Project estimator</button>
+      </nav>
+      <div class="top-actions">
+        <button type="button" class="ghost" id="snapshot-term">Record term</button>
+        <button type="button" class="ghost danger" id="reset-sandbox">Reset</button>
+      </div>
+    </header>
+
+    <section id="tab-overview" class="tab-panel is-active" role="tabpanel">
+      <div class="kpi-row">
+        <article class="kpi">
+          <span>National happiness</span>
+          <strong id="kpi-happiness">—</strong>
+          <em id="kpi-happiness-note">Public mood</em>
+        </article>
+        <article class="kpi">
+          <span>Corporate lobbying</span>
+          <strong id="kpi-lobbying">—</strong>
+          <em id="kpi-lobbying-note">Pressure on cabinet</em>
+        </article>
+        <article class="kpi">
+          <span>Preferred party</span>
+          <strong id="kpi-preferred">—</strong>
+          <em id="kpi-preferred-note">Highest support</em>
+        </article>
+        <article class="kpi">
+          <span>Government benches</span>
+          <strong id="kpi-gov-seats">—</strong>
+          <em id="kpi-majority">13 seats in the chamber</em>
+        </article>
+      </div>
+
+      <div class="overview-grid">
+        <aside class="panel parties-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Parties in the chamber</h2>
+              <p>Cabinet support tracks national happiness. Lobbying only shuffles who else is in the mix. Seats stay put until you spin an election, or an event forces a member out.</p>
+            </div>
+            <button type="button" class="solid" id="open-party-modal">Add party</button>
+          </div>
+          <p class="hint" id="gov-support-note"></p>
+          <div id="party-list" class="party-list"></div>
+        </aside>
+
+        <div class="center-col">
+          <article class="panel">
+            <div class="panel-head">
+            <div>
+              <h2>The cabinet table</h2>
+              <p>The table grows with every ministry. Each portfolio is its own place; a member who holds two sits twice. Parliamentary seats still only change after an election or a resignation.</p>
+            </div>
+          </div>
+          <div class="chamber-wrap">
+            <canvas id="chamber-canvas" width="800" height="800" aria-label="Circular cabinet table of members and their ministries"></canvas>
+          </div>
+          <canvas id="support-canvas" width="720" height="220" aria-label="Party support chart"></canvas>
+          <div id="seat-legend" class="table-legend"></div>
+          </article>
+
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Preferred parties during terms</h2>
+                <p>Each recorded term stores who led the polls. Spinning the election wheel also writes a term.</p>
+              </div>
+            </div>
+            <canvas id="terms-canvas" width="720" height="240" aria-label="Preferred parties by term"></canvas>
+            <p id="terms-empty" class="empty-note">No terms recorded yet. Use Record term or spin the wheel.</p>
+          </article>
+
+          <div class="gauge-row">
+            <article class="panel gauge-card">
+              <h2>Happiness</h2>
+              <canvas id="happy-gauge" width="220" height="150"></canvas>
+              <p id="happy-explain" class="explain"></p>
+            </article>
+            <article class="panel gauge-card">
+              <h2>Lobbying</h2>
+              <canvas id="lobby-gauge" width="220" height="150"></canvas>
+              <p id="lobby-explain" class="explain"></p>
+            </article>
+          </div>
+        </div>
+
+        <aside class="panel wheel-panel">
+          <div class="panel-head">
+            <div>
+              <h2>Election wheel</h2>
+              <p>The government’s slice tracks happiness. Lobbying only changes how the rest of the wheel is split.</p>
+            </div>
+          </div>
+          <div class="wheel-wrap">
+            <div class="wheel-pointer" aria-hidden="true"></div>
+            <canvas id="wheel-canvas" width="420" height="420" aria-label="Election wheel"></canvas>
+          </div>
+          <button type="button" class="solid xl" id="spin-wheel">Spin the wheel</button>
+          <div id="wheel-result" class="wheel-result" hidden></div>
+          <p class="hint">The spin seats a new chamber from current support. Those seats then stay put until the next election, or until a member is forced out.</p>
+        </aside>
+      </div>
+    </section>
+
+    <section id="tab-calculator" class="tab-panel" role="tabpanel" hidden>
+      <div class="kpi-row">
+        <article class="kpi">
+          <span>Estimated revenue</span>
+          <strong id="kpi-revenue">—</strong>
+          <em>From the four tax heads</em>
+        </article>
+        <article class="kpi">
+          <span>Programme spending</span>
+          <strong id="kpi-spending">—</strong>
+          <em>All ministries except Treasury savings</em>
+        </article>
+        <article class="kpi" id="position-kpi">
+          <span>Budget position</span>
+          <strong id="kpi-position">—</strong>
+          <em id="kpi-position-note">Surplus or deficit</em>
+        </article>
+        <article class="kpi">
+          <span>Treasury / savings</span>
+          <strong id="kpi-savings">—</strong>
+          <em>Allocated to reserves</em>
+        </article>
+      </div>
+
+      <div class="calc-grid">
+        <aside class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Income · four tax heads</h2>
+              <p>Each rate estimates a take from its tax base. Moving a slider revises happiness and lobbying immediately.</p>
+            </div>
+          </div>
+          <div id="tax-sliders"></div>
+          <div class="mini-table" id="tax-table"></div>
+        </aside>
+
+        <article class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Ministries</h2>
+              <p>Sliders are a share of revenue. Over 100% borrows. Under 100% leaves money unallocated. Treasury is national savings. Electorate Treasury is the pool each seat then splits.</p>
+            </div>
+            <button type="button" class="solid" id="open-ministry-modal">Add ministry</button>
+          </div>
+          <div class="alloc-meter">
+            <div class="alloc-bar"><i id="alloc-fill"></i></div>
+            <span id="alloc-label">0% allocated</span>
+          </div>
+          <div id="ministry-list" class="ministry-list"></div>
+        </article>
+
+        <div class="chart-col">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Where the money goes</h2>
+                <p>Pie of current ministry allocations, including savings and any unallocated remainder.</p>
+              </div>
+            </div>
+            <canvas id="pie-canvas" width="420" height="280" aria-label="Budget pie chart"></canvas>
+            <div id="pie-legend" class="legend"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Spending, surplus and deficit</h2>
+                <p>Live comparison plus a trail of recent budget snapshots. Surplus bars sit above the line; deficits below.</p>
+              </div>
+            </div>
+            <canvas id="balance-canvas" width="520" height="200" aria-label="Revenue versus spending"></canvas>
+            <canvas id="history-canvas" width="520" height="220" aria-label="Surplus and deficit history"></canvas>
+          </article>
+        </div>
+      </div>
+
+      <article class="panel event-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Random event</h2>
+            <p>Draws from a large pool of shocks and windfalls. Each one can move happiness, lobbying, support, and the tax base.</p>
+          </div>
+          <button type="button" class="solid xl" id="draw-event">Draw an event</button>
+        </div>
+        <div class="event-layout">
+          <div id="event-current" class="event-card empty">No event drawn yet.</div>
+          <div>
+            <h3 class="subhead">Recent draws</h3>
+            <ol id="event-log" class="event-log"></ol>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <section id="tab-estimator" class="tab-panel" role="tabpanel" hidden>
+      <div class="kpi-row">
+        <article class="kpi">
+          <span>This estimate</span>
+          <strong id="kpi-est-cost">—</strong>
+          <em id="kpi-est-range">Analyse a brief to price it</em>
+        </article>
+        <article class="kpi">
+          <span>Pipeline total</span>
+          <strong id="kpi-est-pipe">—</strong>
+          <em>Projects filed with cabinet</em>
+        </article>
+        <article class="kpi">
+          <span>Share of revenue</span>
+          <strong id="kpi-est-share">—</strong>
+          <em>This estimate vs this year’s take</em>
+        </article>
+        <article class="kpi">
+          <span>Ministry slice</span>
+          <strong id="kpi-est-min">—</strong>
+          <em id="kpi-est-min-note">Years of that portfolio’s current funding</em>
+        </article>
+      </div>
+
+      <div class="est-grid">
+        <aside class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Ministry brief</h2>
+              <p>A portfolio tables a custom project. Type what they want built or funded. The estimator reads the text and returns a cost.</p>
+            </div>
+          </div>
+          <div class="field-grid">
+            <label>Presenting ministry
+              <select id="est-ministry"></select>
+            </label>
+            <label>Project title
+              <input id="est-title" type="text" maxlength="80" placeholder="e.g. Northern metro line, stage one" />
+            </label>
+            <label>What they are asking for
+              <textarea id="est-body" rows="7" maxlength="800" placeholder="Describe the project in plain language: where, how big, new or an upgrade, how many sites, kilometres, homes, ships…"></textarea>
+            </label>
+            <div class="split-fields">
+              <label>Scale
+                <select id="est-scale">
+                  <option value="local">Local / suburb</option>
+                  <option value="city" selected>City</option>
+                  <option value="state">Statewide / regional</option>
+                  <option value="national">National</option>
+                </select>
+              </label>
+              <label>Delivery years
+                <input id="est-years" type="number" min="1" max="20" value="4" />
+              </label>
+            </div>
+            <button type="button" class="solid xl" id="est-analyse">Analyse and price</button>
+            <button type="button" class="ghost" id="est-file" disabled>File with cabinet</button>
+            <p class="hint">The price is a sandbox estimate from the brief — not a tender. Filing keeps it on the pipeline below.</p>
+          </div>
+        </aside>
+
+        <div class="est-result-col">
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Analysis</h2>
+                <p>Detected project type, ministry fit, and a central cost with a low–high band.</p>
+              </div>
+            </div>
+            <div id="est-result" class="est-result empty">No brief analysed yet. Pick a ministry and describe the project.</div>
+          </article>
+          <article class="panel">
+            <div class="panel-head">
+              <div>
+                <h2>Cost mix</h2>
+                <p>How the envelope splits across works, labour, land, kit, and contingency.</p>
+              </div>
+            </div>
+            <canvas id="est-pie" width="420" height="240" aria-label="Project cost breakdown"></canvas>
+            <div id="est-pie-legend" class="legend"></div>
+          </article>
+        </div>
+      </div>
+
+      <article class="panel event-panel">
+        <div class="panel-head">
+          <div>
+            <h2>Filed projects</h2>
+            <p>Ministries’ proposals you have accepted into the pipeline. Remove any that cabinet knocks back.</p>
+          </div>
+        </div>
+        <div id="est-pipeline" class="est-pipeline empty">Nothing filed yet.</div>
+      </article>
+    </section>
+
+    <section id="tab-electorates" class="tab-panel" role="tabpanel" hidden>
+      <div class="kpi-row">
+        <article class="kpi">
+          <span>Electorate Treasury</span>
+          <strong id="kpi-el-pool">—</strong>
+          <em>From the Electorate Treasury ministry</em>
+        </article>
+        <article class="kpi">
+          <span>Delegated locally</span>
+          <strong id="kpi-el-spent">—</strong>
+          <em id="kpi-el-spent-note">Share of that pool</em>
+        </article>
+        <article class="kpi">
+          <span>Unallocated pool</span>
+          <strong id="kpi-el-left">—</strong>
+          <em>Still sitting in the ministry</em>
+        </article>
+        <article class="kpi">
+          <span>Electorates</span>
+          <strong id="kpi-el-count">—</strong>
+          <em id="kpi-el-dom">Open one for local polls</em>
+        </article>
+      </div>
+
+      <div class="electorate-grid">
+        <aside class="panel">
+          <div class="panel-head">
+            <div>
+              <h2>Electorates</h2>
+              <p>Funding sliders share whatever cabinet put in Electorate Treasury. Click an electorate for its local race.</p>
+            </div>
+            <button type="button" class="solid" id="open-electorate-modal">Add electorate</button>
+          </div>
+          <div class="alloc-meter">
+            <div class="alloc-bar"><i id="el-alloc-fill"></i></div>
+            <span id="el-alloc-label">0% of the pool allocated</span>
+          </div>
+          <div id="electorate-list" class="electorate-list"></div>
+        </aside>
+
+        <div id="electorate-detail" class="electorate-detail">
+          <article class="panel el-empty">
+            <h2>Local overview</h2>
+            <p class="hint">Click an electorate to see who it backs, who dominates it, and to spin its own election wheel.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div id="modal-root" class="modal-root" hidden>
+    <div class="modal" id="party-modal" hidden>
+      <h2 id="party-modal-title">Add a party</h2>
+      <label>Party name
+        <input id="new-party-name" type="text" maxlength="48" placeholder="e.g. Civic Forum" />
+      </label>
+      <label>Party leader
+        <input id="new-party-leader" type="text" maxlength="48" placeholder="e.g. Avery Lang" />
+      </label>
+      <label>Ideologies
+        <input id="new-party-ideo" type="text" maxlength="120" placeholder="Comma separated — social democrat, green, centrist" />
+      </label>
+      <p class="hint">People-aligned tags gain when lobbying is quiet and the public is restless. Business-aligned tags gain when firms are applying pressure.</p>
+      <label>Party standing
+        <div class="slider-row">
+          <input id="new-party-tier" type="range" min="0" max="2" step="1" value="0" />
+          <output id="new-party-tier-val">Major</output>
+        </div>
+      </label>
+      <div class="tier-scale" aria-hidden="true"><span>Major</span><span>Minor</span><span>Independent</span></div>
+      <p class="hint" id="party-tier-hint">Majors contest nationally. Minors take a smaller national slice. Independents are strongest in a home electorate.</p>
+      <label>Home electorate
+        <select id="new-party-home">
+          <option value="">None — contest everywhere</option>
+        </select>
+      </label>
+      <label>Colour
+        <input id="new-party-color" type="color" value="#4ecdc4" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="ghost" data-close-modal>Cancel</button>
+        <button type="button" class="solid" id="confirm-party">Add party</button>
+      </div>
+    </div>
+
+    <div class="modal" id="ministry-modal" hidden>
+      <h2 id="ministry-modal-title">Add a ministry</h2>
+      <label>Name
+        <input id="new-min-name" type="text" maxlength="48" placeholder="e.g. Climate and Energy" />
+      </label>
+      <label>Who feels it most
+        <select id="new-min-impact">
+          <option value="preset" id="min-impact-original" hidden>Keep original portfolio effects</option>
+          <option value="people">People-focused — lifts happiness, firms may lobby against it</option>
+          <option value="business">Business-focused — eases lobbying, weaker public lift</option>
+          <option value="neutral" selected>Neutral — modest effect on both</option>
+        </select>
+      </label>
+      <label>What it is responsible for
+        <input id="new-min-brief" type="text" maxlength="220" placeholder="Optional — shown when you hover the info button" />
+      </label>
+      <label class="check-row">
+        <input id="new-min-savings" type="checkbox" />
+        Count as savings (Treasury-style), not programme spend
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="ghost" data-close-modal>Cancel</button>
+        <button type="button" class="solid" id="confirm-ministry">Add ministry</button>
+      </div>
+    </div>
+
+    <div class="modal" id="electorate-modal" hidden>
+      <h2 id="electorate-modal-title">Add an electorate</h2>
+      <label>Name
+        <input id="new-el-name" type="text" maxlength="48" placeholder="e.g. Harbour North" />
+      </label>
+      <label>What it’s like
+        <input id="new-el-brief" type="text" maxlength="220" placeholder="Optional — inner urban, farming region, coastal tourism…" />
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="ghost" data-close-modal>Cancel</button>
+        <button type="button" class="solid" id="confirm-electorate">Add electorate</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="ministry-tip" class="ministry-tip" hidden></div>
+
+  <script src="js/events.js?v=electorates"></script>
+  <script src="js/estimator.js?v=electorates"></script>
+  <script src="js/charts.js?v=electorates"></script>
+  <script src="js/app.js?v=electorates"></script>
+</body>
+</html>
