@@ -1,5 +1,7 @@
 (function () {
-  const SEATS = 13;
+  const MIN_CHAMBER_SEATS = 1;
+  const MIN_EL_SEATS = 12;
+  const DEFAULT_SEATS = 14;
   const STORAGE = "statecraft-sandbox-v1";
   const PALETTE = ["#4ecdc4", "#e06c75", "#5b8def", "#e8b86d", "#b07cc6", "#7dcea0", "#f0b27a", "#74b9ff", "#fd79a8", "#55efc4"];
   const TIER_LABELS = ["major", "minor", "independent"];
@@ -63,7 +65,9 @@
     ].map((e) => Object.assign({
       wheelAngle: -Math.PI / 2,
       dominatesId: null,
-      lastElection: null
+      lastElection: null,
+      seatCount: MIN_EL_SEATS,
+      chamber: null
     }, e));
   }
 
@@ -107,6 +111,7 @@
       wheelAngle: -Math.PI / 2,
       projects: [],
       lastEstimate: null,
+      seatCount: DEFAULT_SEATS,
       chamber: null,
       electorates: defaultElectorates(),
       selectedElectorateId: "el-harbour"
@@ -125,7 +130,16 @@
 
   function migrate(data) {
     if (!Array.isArray(data.projects)) data.projects = [];
-    if (!Array.isArray(data.chamber) || data.chamber.length !== SEATS) data.chamber = null;
+    if (!Array.isArray(data.chamber)) data.chamber = null;
+    const ministryN = Array.isArray(data.ministries) ? data.ministries.length : DEFAULT_SEATS;
+    const chamberN = Array.isArray(data.chamber) ? data.chamber.length : 0;
+    const hadSeatCount = data.seatCount != null && Number(data.seatCount) > 0;
+    if (!hadSeatCount) {
+      data.seatCount = Math.max(DEFAULT_SEATS, MIN_CHAMBER_SEATS, ministryN, chamberN);
+      data.chamber = null;
+    } else {
+      data.seatCount = Math.max(MIN_CHAMBER_SEATS, Number(data.seatCount));
+    }
     (data.parties || []).forEach((p) => {
       if (!p.tier) p.tier = "major";
       if (p.homeElectorate == null) p.homeElectorate = "";
@@ -153,6 +167,9 @@
       if (typeof e.alloc !== "number") e.alloc = 10;
       if (typeof e.wheelAngle !== "number") e.wheelAngle = -Math.PI / 2;
       if (!e.dominatesId) e.dominatesId = null;
+      const held = Array.isArray(e.chamber) ? e.chamber.length : 0;
+      e.seatCount = Math.max(MIN_EL_SEATS, Number(e.seatCount) || 0, held);
+      if (!Array.isArray(e.chamber)) e.chamber = null;
     });
     if (!data.selectedElectorateId && data.electorates[0]) data.selectedElectorateId = data.electorates[0].id;
     return data;
@@ -341,14 +358,26 @@
     return { party: top.party, pct: top.pct, seated: false };
   }
 
-  function allocateSeats() {
-    const shares = pollShares();
+  function chamberSize() {
+    return Math.max(MIN_CHAMBER_SEATS, Number(state.seatCount) || DEFAULT_SEATS);
+  }
+
+  function majorityNeed(n) {
+    return Math.floor(Math.max(1, n) / 2) + 1;
+  }
+
+  function vacantSlot() {
+    return { partyId: null, member: "Vacant", leader: false, vacant: true };
+  }
+
+  function allocateByShares(shares, n) {
+    const total = Math.max(1, n);
     const rows = shares.map((s) => {
-      const exact = (s.pct / 100) * SEATS;
+      const exact = (s.pct / 100) * total;
       const seats = Math.floor(exact);
       return { ...s, exact, seats, rem: exact - seats };
     });
-    let left = SEATS - rows.reduce((n, r) => n + r.seats, 0);
+    let left = total - rows.reduce((sum, r) => sum + r.seats, 0);
     [...rows].sort((a, b) => b.rem - a.rem).forEach((r) => {
       if (left > 0) {
         r.seats += 1;
@@ -358,14 +387,70 @@
     return rows;
   }
 
-  function extraMemberName(party, idx) {
+  function allocateSeats() {
+    return allocateByShares(pollShares(), chamberSize());
+  }
+
+  function extraMemberName(party, idx, salt) {
     const first = ["Blair", "Cameron", "Devon", "Ellis", "Finley", "Hadley", "Indigo", "Jules", "Kit", "Lake", "Marlow", "Noel", "Oakley", "Pax", "Quinn", "Reeve", "Shay"];
     const last = ["Nash", "Voss", "Keene", "Daley", "Crowe", "Pritchard", "Ng", "Iyer", "Berg", "Santos", "Wade", "Kaur"];
     let h = 0;
-    const seed = party.id + "|" + party.leader;
+    const seed = party.id + "|" + party.leader + "|" + (salt || "");
     for (let i = 0; i < seed.length; i++) h = Math.imul(h, 31) + seed.charCodeAt(i);
     h = Math.abs(h + idx * 17);
     return first[h % first.length] + " " + last[(h >> 3) % last.length];
+  }
+
+  function buildChamber(seated, n, salt) {
+    const chamber = [];
+    seated.forEach((s) => {
+      for (let i = 0; i < s.seats; i++) {
+        chamber.push({
+          partyId: s.party.id,
+          member: i === 0 ? s.party.leader : extraMemberName(s.party, i, salt),
+          leader: i === 0,
+          vacant: false
+        });
+      }
+    });
+    while (chamber.length < n) chamber.push(vacantSlot());
+    return chamber.slice(0, n);
+  }
+
+  function resizeSlots(slots, n) {
+    const next = Array.isArray(slots) ? slots.slice() : [];
+    while (next.length < n) next.push(vacantSlot());
+    while (next.length > n) {
+      let cut = -1;
+      for (let i = next.length - 1; i >= 0; i--) {
+        if (next[i].vacant) {
+          cut = i;
+          break;
+        }
+      }
+      next.splice(cut >= 0 ? cut : next.length - 1, 1);
+    }
+    return next;
+  }
+
+  function syncSlots(slots) {
+    (slots || []).forEach((s) => {
+      if (!s.vacant && s.partyId && !state.parties.some((p) => p.id === s.partyId)) {
+        s.vacant = true;
+        s.partyId = null;
+        s.member = "Vacant";
+        s.leader = false;
+      }
+    });
+  }
+
+  function setChamberSize(n) {
+    state.seatCount = Math.max(MIN_CHAMBER_SEATS, n);
+    if (Array.isArray(state.chamber) && state.chamber.length) {
+      state.chamber = resizeSlots(state.chamber, state.seatCount);
+    } else {
+      seatTheHouse();
+    }
   }
 
   function heldSeats(partyId) {
@@ -381,41 +466,69 @@
   }
 
   function syncChamberParties() {
-    (state.chamber || []).forEach((s) => {
-      if (!s.vacant && s.partyId && !state.parties.some((p) => p.id === s.partyId)) {
-        s.vacant = true;
-        s.partyId = null;
-        s.member = "Vacant";
-        s.leader = false;
-      }
-    });
+    syncSlots(state.chamber);
   }
 
   function seatTheHouse() {
+    const n = chamberSize();
     const seated = allocateSeats().slice().sort((a, b) => {
       if (a.party.inOffice !== b.party.inOffice) return a.party.inOffice ? -1 : 1;
       return b.seats - a.seats;
     });
-    const chamber = [];
-    seated.forEach((s) => {
-      for (let i = 0; i < s.seats; i++) {
-        chamber.push({
-          partyId: s.party.id,
-          member: i === 0 ? s.party.leader : extraMemberName(s.party, i),
-          leader: i === 0,
-          vacant: false
-        });
-      }
-    });
-    while (chamber.length < SEATS) {
-      chamber.push({ partyId: null, member: "Vacant", leader: false, vacant: true });
-    }
-    state.chamber = chamber.slice(0, SEATS);
+    state.chamber = buildChamber(seated, n);
   }
 
   function ensureChamber() {
-    if (!Array.isArray(state.chamber) || state.chamber.length !== SEATS) seatTheHouse();
-    else syncChamberParties();
+    const n = chamberSize();
+    state.seatCount = n;
+    if (!Array.isArray(state.chamber) || !state.chamber.length) seatTheHouse();
+    else if (state.chamber.length !== n) state.chamber = resizeSlots(state.chamber, n);
+    syncChamberParties();
+  }
+
+  function electorateSeatCount(el) {
+    const held = Array.isArray(el.chamber) ? el.chamber.length : 0;
+    return Math.max(MIN_EL_SEATS, Number(el.seatCount) || 0, held);
+  }
+
+  function allocateElectorateSeats(el) {
+    return allocateByShares(electoratePolls(el), electorateSeatCount(el));
+  }
+
+  function seatElectorate(el) {
+    const n = electorateSeatCount(el);
+    el.seatCount = n;
+    const seated = allocateElectorateSeats(el).slice().sort((a, b) => {
+      const aDom = el.dominatesId === a.party.id;
+      const bDom = el.dominatesId === b.party.id;
+      if (aDom !== bDom) return aDom ? -1 : 1;
+      return b.seats - a.seats;
+    });
+    el.chamber = buildChamber(seated, n, el.id);
+  }
+
+  function ensureElectorateChamber(el) {
+    const n = electorateSeatCount(el);
+    el.seatCount = n;
+    if (!Array.isArray(el.chamber) || !el.chamber.length) seatElectorate(el);
+    else if (el.chamber.length !== n) el.chamber = resizeSlots(el.chamber, n);
+    syncSlots(el.chamber);
+  }
+
+  function addElectorateSeat(el) {
+    el.seatCount = electorateSeatCount(el) + 1;
+    el.chamber = resizeSlots(el.chamber, el.seatCount);
+  }
+
+  function removeElectorateSeat(el) {
+    const n = electorateSeatCount(el);
+    if (n <= MIN_EL_SEATS) return;
+    el.seatCount = n - 1;
+    el.chamber = resizeSlots(el.chamber, el.seatCount);
+  }
+
+  function heldElectorateSeats(el, partyId) {
+    return (el.chamber || []).filter((s) => !s.vacant && s.partyId === partyId).length;
   }
 
   function resignMember(who) {
@@ -446,14 +559,16 @@
   }
 
   function vacateParty(partyId) {
-    (state.chamber || []).forEach((s) => {
+    const clear = (s) => {
       if (s.partyId === partyId) {
         s.vacant = true;
         s.partyId = null;
         s.member = "Vacant";
         s.leader = false;
       }
-    });
+    };
+    (state.chamber || []).forEach(clear);
+    (state.electorates || []).forEach((el) => (el.chamber || []).forEach(clear));
   }
 
   function taxTake(key, rate) {
@@ -556,8 +671,14 @@
     $("kpi-lobbying-note").textContent = mood.lobby >= 55 ? "Heavy corporate pressure" : mood.lobby >= 32 ? "Active but contained" : "Quiet boardrooms";
     $("kpi-preferred").textContent = pref ? pref.party.name : "—";
     $("kpi-preferred-note").textContent = pref ? pref.pct.toFixed(1) + "% support" : "Add a party";
-    $("kpi-gov-seats").textContent = govSeats + " / " + SEATS;
-    $("kpi-majority").textContent = govSeats >= 7 ? "Majority government" : "Minority or caretaker";
+    const seatsN = chamberSize();
+    const need = majorityNeed(seatsN);
+    $("kpi-gov-seats").textContent = govSeats + " / " + seatsN;
+    $("kpi-majority").textContent = govSeats >= need
+      ? "Majority government · " + need + " needed"
+      : "Minority or caretaker · " + need + " needed";
+    const tag = document.querySelector(".brand .tag");
+    if (tag) tag.textContent = "A " + seatsN + "-seat chamber, a public mood, and a budget you control.";
 
     $("kpi-revenue").textContent = money(mood.budget.rev);
     $("kpi-spending").textContent = money(mood.budget.spending);
@@ -762,11 +883,12 @@
     }
     const e = state.lastElection;
     box.hidden = false;
-    box.innerHTML = `<strong>${escapeHtml(e.name)}</strong> forms government<br><span class="hint">${escapeHtml(e.leader)} · ${e.pct.toFixed(1)}% chance on the wheel · ${e.majority ? "majority" : "minority"} with ${e.seats} seats</span>`;
+    box.innerHTML = `<strong>${escapeHtml(e.name)}</strong> forms government<br><span class="hint">${escapeHtml(e.leader)} · ${e.pct.toFixed(1)}% chance on the wheel · ${e.majority ? "majority" : "minority"} with ${e.seats} of ${chamberSize()} seats</span>`;
   }
 
   function ensureElectorateWinners() {
     (state.electorates || []).forEach((el) => {
+      ensureElectorateChamber(el);
       if (el.dominatesId && state.parties.some((p) => p.id === el.dominatesId)) return;
       const d = electorateDominator(el);
       el.dominatesId = d ? d.party.id : null;
@@ -812,7 +934,7 @@
         const open = state.selectedElectorateId === el.id;
         return `<article class="el-card${open ? " is-open" : ""}" data-open-el="${el.id}">
           <h3>${escapeHtml(el.name)}</h3>
-          <p class="sub">${escapeHtml(el.brief || "No description")} · ${dom ? escapeHtml(dom.party.name) + " dominates" : "No dominant party"}</p>
+          <p class="sub">${escapeHtml(el.brief || "No description")} · ${electorateSeatCount(el)} seats · ${dom ? escapeHtml(dom.party.name) + " dominates" : "No dominant party"}</p>
           <div class="slider-row">
             <input type="range" min="0" max="40" step="0.5" value="${el.alloc}" data-el-alloc="${el.id}" aria-label="Funding for ${escapeHtml(el.name)}" />
             <output>${Number(el.alloc).toFixed(1)}%</output>
@@ -836,15 +958,20 @@
     if (!el) {
       host.innerHTML = `<article class="panel el-empty">
         <h2>Local overview</h2>
-        <p class="hint">Click an electorate to see who it backs, who dominates it, and to spin its own election wheel.</p>
+        <p class="hint">Click an electorate to see its local table, add or remove seats, and spin its own election wheel.</p>
       </article>`;
       return;
     }
+    ensureElectorateChamber(el);
     const happy = localHappy(el);
     const polls = electoratePolls(el);
     const dom = electorateDominator(el);
     const fund = electorateFunding();
     const dollars = fund.pool * (el.alloc / 100);
+    const seatsN = electorateSeatCount(el);
+    const localHeld = dom ? heldElectorateSeats(el, dom.party.id) : 0;
+    const need = majorityNeed(seatsN);
+    const last = el.lastElection;
     host.innerHTML = `
       <div class="el-detail-head">
         <div>
@@ -865,28 +992,46 @@
           <em>${dom ? (dom.seated ? "Won the last local spin" : "Leads the local poll") : "Add a party"}</em>
         </article>
         <article class="kpi">
+          <span>Local benches</span>
+          <strong>${localHeld} / ${seatsN}</strong>
+          <em>${localHeld >= need ? "Local majority" : "No local majority"} · ${need} needed</em>
+        </article>
+        <article class="kpi">
           <span>Local funding</span>
           <strong>${money(dollars)}</strong>
           <em>${Number(el.alloc).toFixed(1)}% of Electorate Treasury</em>
         </article>
-        <article class="kpi">
-          <span>Preferred here</span>
-          <strong>${polls.length ? escapeHtml(polls.slice().sort((a, b) => b.pct - a.pct)[0].party.name) : "—"}</strong>
-          <em>${polls.length ? polls.slice().sort((a, b) => b.pct - a.pct)[0].pct.toFixed(1) + "% local support" : "No parties"}</em>
-        </article>
       </div>
+      <article class="panel el-table-panel">
+        <div class="panel-head">
+          <div>
+            <h2>The local table</h2>
+            <p>Same chamber diagram as the national overview. These are seats only — no ministries. Add or remove chairs; new ones stay vacant until the next local spin.</p>
+          </div>
+          <div class="seat-stepper">
+            <button type="button" class="tiny" data-el-remove-seat="${el.id}"${seatsN <= MIN_EL_SEATS ? " disabled" : ""}>Remove seat</button>
+            <strong>${seatsN} seats</strong>
+            <button type="button" class="tiny" data-el-add-seat="${el.id}">Add seat</button>
+          </div>
+        </div>
+        <div class="chamber-wrap">
+          <canvas id="el-chamber-canvas" width="800" height="800" aria-label="Circular table of local members"></canvas>
+        </div>
+        <div id="el-seat-legend" class="table-legend"></div>
+      </article>
       <div class="el-mini">
         <aside class="panel">
           <div class="panel-head">
             <div>
               <h2>Parties in ${escapeHtml(el.name)}</h2>
-              <p>Local support follows local happiness. Majors travel; independents spike in a home seat.</p>
+              <p>Local support follows local happiness. Majors travel; independents spike in a home seat. Seats stay put until you spin.</p>
             </div>
             <button type="button" class="solid" data-el-add-party="${el.id}">Add party</button>
           </div>
           <div class="party-list">${polls.length ? polls.map((s) => {
             const p = s.party;
             const lead = dom && dom.party.id === p.id;
+            const held = heldElectorateSeats(el, p.id);
             return `<article class="party-card compact" style="--accent:${p.color}">
               <h3>${escapeHtml(p.name)}${lead ? " · dominates" : ""}</h3>
               <p class="leader">Leader · ${escapeHtml(p.leader)}</p>
@@ -895,6 +1040,7 @@
                 <div class="support-bar"><i style="width:${Math.min(100, s.pct)}%"></i></div>
                 <strong>${s.pct.toFixed(1)}%</strong>
               </div>
+              <p class="hint">${held} seat${held === 1 ? "" : "s"} held until the next local election</p>
             </article>`;
           }).join("") : '<p class="empty-note">No parties on the ballot.</p>'}</div>
         </aside>
@@ -913,7 +1059,7 @@
           <div class="panel-head">
             <div>
               <h2>Local election wheel</h2>
-              <p>Slice size follows support in this electorate. The spin names who dominates here, not who sits in cabinet.</p>
+              <p>The spin seats this electorate from current local support. Those seats then stay put until the next spin.</p>
             </div>
           </div>
           <div class="wheel-wrap">
@@ -921,10 +1067,31 @@
             <canvas id="el-wheel-canvas" width="320" height="320" aria-label="Electorate election wheel"></canvas>
           </div>
           <button type="button" class="solid xl" id="el-spin-wheel">Spin this electorate</button>
-          <div id="el-wheel-result" class="wheel-result"${el.lastElection ? "" : " hidden"}>${el.lastElection ? `<strong>${escapeHtml(el.lastElection.name)}</strong> dominates ${escapeHtml(el.name)}<br><span class="hint">${escapeHtml(el.lastElection.leader)} · ${el.lastElection.pct.toFixed(1)}% on the local wheel</span>` : ""}</div>
+          <div id="el-wheel-result" class="wheel-result"${last ? "" : " hidden"}>${last ? `<strong>${escapeHtml(last.name)}</strong> dominates ${escapeHtml(el.name)}<br><span class="hint">${escapeHtml(last.leader)} · ${last.pct.toFixed(1)}% on the local wheel · ${last.seats != null ? last.seats + " of " + seatsN + " seats" : seatsN + " local seats"}</span>` : ""}</div>
         </aside>
       </div>`;
     requestAnimationFrame(drawElectorateView);
+  }
+
+  function electorateTablePlaces(el) {
+    ensureElectorateChamber(el);
+    return (el.chamber || []).map((slot, i) => {
+      const party = !slot.vacant && slot.partyId
+        ? state.parties.find((p) => p.id === slot.partyId)
+        : null;
+      return {
+        color: party ? party.color : "#3d4a57",
+        inOffice: !!(party && party.id === el.dominatesId),
+        leader: !!(slot.leader && party),
+        member: party ? slot.member : "Vacant",
+        party: party ? party.name : "Vacant",
+        ministry: party ? "Seat " + (i + 1) : "Vacant seat",
+        extra: 0,
+        extraList: [],
+        fullMinistries: [],
+        role: party ? (party.id === el.dominatesId ? "Dominates" : party.name) : "Vacant"
+      };
+    });
   }
 
   function drawElectorateView() {
@@ -932,6 +1099,26 @@
     const C = window.StatecraftCharts;
     if (!el || !$("el-support-canvas")) return;
     const polls = electoratePolls(el);
+    const table = electorateTablePlaces(el);
+    if ($("el-chamber-canvas")) {
+      C.chamber($("el-chamber-canvas"), table, { title: el.name, unit: "seat" });
+    }
+    const legend = $("el-seat-legend");
+    if (legend) {
+      legend.innerHTML = table.map((m, i) => {
+        const who = m.party === "Vacant"
+          ? "Vacant until the next local election"
+          : escapeHtml(m.party) + (m.inOffice ? " · dominates" : "");
+        return `<div class="table-leg">
+          <i class="swatch" style="background:${m.color};margin-top:5px"></i>
+          <div>
+            <strong>${escapeHtml(m.member)}${m.leader ? " · leader" : ""}</strong>
+            <em>Seat ${i + 1}</em>
+            <span>${who}</span>
+          </div>
+        </div>`;
+      }).join("");
+    }
     C.gauge($("el-happy-gauge"), localHappy(el), "#7dcea0", "");
     C.bars($("el-support-canvas"), polls.map((s) => ({
       label: s.party.name,
@@ -971,54 +1158,40 @@
         sitting[i % sitting.length].ministries.push(min);
       });
     }
-    const places = [];
-    members.forEach((m) => {
+    return members.map((m) => {
+      const mins = m.ministries;
       const partyName = m.party ? m.party.name : "Vacant";
-      const role = m.party ? (m.inOffice ? "Government" : m.party.name) : "Vacant";
-      const held = m.ministries.length ? m.ministries : [null];
-      if (!m.party) {
-        places.push({
-          color: m.color,
-          inOffice: false,
-          leader: false,
-          member: "Vacant",
-          party: "Vacant",
-          ministry: "Vacant",
-          extra: 0,
-          extraList: [],
-          fullMinistries: [],
-          role: "Vacant"
-        });
-        return;
-      }
-      held.forEach((min, idx) => {
-        places.push({
-          color: m.color,
-          inOffice: m.inOffice,
-          leader: m.leader && idx === 0,
-          member: m.member,
-          party: partyName,
-          ministry: min ? shortPortfolio(min.name) : "No portfolio",
-          extra: 0,
-          extraList: [],
-          fullMinistries: min ? [min.name] : [],
-          role: role
-        });
-      });
+      return {
+        color: m.color,
+        inOffice: m.inOffice,
+        leader: m.leader,
+        member: m.member,
+        party: partyName,
+        ministry: mins.length
+          ? mins.map((x) => shortPortfolio(x.name)).join(" · ")
+          : (m.party ? "No portfolio" : "Vacant"),
+        extra: 0,
+        extraList: [],
+        fullMinistries: mins.map((x) => x.name),
+        role: m.party ? (m.inOffice ? "Government" : partyName) : "Vacant"
+      };
     });
-    return places;
   }
 
   function drawAll() {
     const C = window.StatecraftCharts;
     const seated = allocateSeats();
     const table = cabinetMembers();
-    C.chamber($("chamber-canvas"), table);
+    C.chamber($("chamber-canvas"), table, { title: "The table", unit: "seat" });
     C.bars($("support-canvas"), seated.map((s) => ({
       label: s.party.name,
       value: s.pct,
       color: s.party.color
     })));
+    const seatLabel = $("chamber-seat-count");
+    if (seatLabel) seatLabel.textContent = chamberSize() + " seats";
+    const removeBtn = $("remove-chamber-seat");
+    if (removeBtn) removeBtn.disabled = chamberSize() <= MIN_CHAMBER_SEATS;
     $("seat-legend").innerHTML = table.map((m) => {
       const mins = m.fullMinistries.length
         ? m.fullMinistries.join(", ")
@@ -1222,7 +1395,16 @@
         const win = winnerAtAngle(electoratePolls(el).filter((s) => s.pct > 0), el.wheelAngle);
         if (win) {
           el.dominatesId = win.party.id;
-          el.lastElection = { name: win.party.name, leader: win.party.leader, pct: win.pct };
+          seatElectorate(el);
+          const won = heldElectorateSeats(el, win.party.id);
+          const n = electorateSeatCount(el);
+          el.lastElection = {
+            name: win.party.name,
+            leader: win.party.leader,
+            pct: win.pct,
+            seats: won,
+            majority: won >= majorityNeed(n)
+          };
         }
         render();
       }
@@ -1240,7 +1422,7 @@
       leader: share.party.leader,
       pct: share.pct,
       seats: won,
-      majority: won >= 7
+      majority: won >= majorityNeed(chamberSize())
     };
     recordTerm("Election");
     render();
@@ -1630,7 +1812,9 @@
         alloc: 8,
         wheelAngle: -Math.PI / 2,
         dominatesId: null,
-        lastElection: null
+        lastElection: null,
+        seatCount: MIN_EL_SEATS,
+        chamber: null
       };
       state.electorates.push(created);
       state.selectedElectorateId = created.id;
@@ -1673,6 +1857,7 @@
         ideal: 5,
         savings
       });
+      setChamberSize(chamberSize() + 1);
     }
     $("new-min-name").value = "";
     $("new-min-brief").value = "";
@@ -1767,6 +1952,7 @@
       const gone = state.ministries.find((m) => m.id === id);
       if (!gone || gone.locked || gone.id === "electorate") return;
       state.ministries = state.ministries.filter((m) => m.id !== id);
+      setChamberSize(chamberSize() - 1);
       render();
       scheduleBudgetSnap();
     });
@@ -1795,6 +1981,15 @@
     $("open-party-modal").addEventListener("click", () => openPartyModal());
     $("open-ministry-modal").addEventListener("click", () => openMinistryModal());
     $("open-electorate-modal").addEventListener("click", () => openElectorateModal());
+    $("add-chamber-seat").addEventListener("click", () => {
+      setChamberSize(chamberSize() + 1);
+      render();
+    });
+    $("remove-chamber-seat").addEventListener("click", () => {
+      if (chamberSize() <= MIN_CHAMBER_SEATS) return;
+      setChamberSize(chamberSize() - 1);
+      render();
+    });
     $("confirm-party").addEventListener("click", saveParty);
     $("confirm-ministry").addEventListener("click", saveMinistry);
     $("confirm-electorate").addEventListener("click", saveElectorate);
@@ -1849,7 +2044,27 @@
         return;
       }
       const add = e.target.dataset.elAddParty;
-      if (add) openPartyModal(null, { electorateId: add });
+      if (add) {
+        openPartyModal(null, { electorateId: add });
+        return;
+      }
+      const addSeat = e.target.dataset.elAddSeat;
+      if (addSeat) {
+        const target = state.electorates.find((x) => x.id === addSeat);
+        if (target) {
+          addElectorateSeat(target);
+          render();
+        }
+        return;
+      }
+      const removeSeat = e.target.dataset.elRemoveSeat;
+      if (removeSeat) {
+        const target = state.electorates.find((x) => x.id === removeSeat);
+        if (target) {
+          removeElectorateSeat(target);
+          render();
+        }
+      }
     });
 
     $("spin-wheel").addEventListener("click", spinWheel);
