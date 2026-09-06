@@ -29,10 +29,13 @@ window.StatecraftCharts = (function () {
     return s + "…";
   }
 
-  function chamber(canvas, seats) {
+  function chamber(canvas, seats, opts) {
+    opts = opts || {};
     const { ctx, w, h } = ctx2d(canvas);
     ctx.clearRect(0, 0, w, h);
     const n = Math.max(seats.length, 1);
+    const title = opts.title || "The table";
+    const unit = opts.unit || "place";
     const pad = Math.max(78, Math.min(w, h) * 0.13);
     const cx = w / 2;
     const cy = h / 2;
@@ -68,10 +71,10 @@ window.StatecraftCharts = (function () {
     ctx.font = "600 12px Cormorant Garamond, serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("The table", cx, cy - 8);
+    ctx.fillText(ellipsize(ctx, title, tableR * 2.2), cx, cy - 8);
     ctx.fillStyle = "#8b9aab";
     ctx.font = "11px Manrope, sans-serif";
-    ctx.fillText(n === 1 ? "1 place" : n + " places", cx, cy + 10);
+    ctx.fillText(n === 1 ? "1 " + unit : n + " " + unit + "s", cx, cy + 10);
 
     const maxLabel = Math.max(88, ((2 * Math.PI * labelR) / n) * 1.12);
 
