@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,600;0,700;1,600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=electorates" />
+  <link rel="stylesheet" href="css/style.css?v=el-seats" />
 </head>
 <body>
   <div class="app">
@@ -15,7 +15,7 @@
       <div class="brand">
         <p class="kicker">Independent sandbox · not linked to Parliament Sim</p>
         <h1>Statecraft</h1>
-        <p class="tag">A 13-seat chamber, a public mood, and a budget you control.</p>
+        <p class="tag">A 14-seat chamber, a public mood, and a budget you control.</p>
       </div>
       <nav class="tabs" role="tablist">
         <button type="button" class="tab is-active" data-tab="overview" role="tab" aria-selected="true">Overview</button>
@@ -49,7 +49,7 @@
         <article class="kpi">
           <span>Government benches</span>
           <strong id="kpi-gov-seats">—</strong>
-          <em id="kpi-majority">13 seats in the chamber</em>
+          <em id="kpi-majority">14 seats in the chamber</em>
         </article>
       </div>
 
@@ -71,7 +71,12 @@
             <div class="panel-head">
             <div>
               <h2>The cabinet table</h2>
-              <p>The table grows with every ministry. Each portfolio is its own place; a member who holds two sits twice. Parliamentary seats still only change after an election or a resignation.</p>
+              <p>The table and the government benches grow with every seat. Ministries are portfolios on those seats, not extra chairs. Occupants stay until an election or a resignation.</p>
+            </div>
+            <div class="seat-stepper">
+              <button type="button" class="tiny" id="remove-chamber-seat">Remove seat</button>
+              <strong id="chamber-seat-count">14 seats</strong>
+              <button type="button" class="tiny" id="add-chamber-seat">Add seat</button>
             </div>
           </div>
           <div class="chamber-wrap">
@@ -341,7 +346,7 @@
           <div class="panel-head">
             <div>
               <h2>Electorates</h2>
-              <p>Funding sliders share whatever cabinet put in Electorate Treasury. Click an electorate for its local race.</p>
+              <p>Funding sliders share whatever cabinet put in Electorate Treasury. Each electorate starts with 12 seats. Click one for its local table and race.</p>
             </div>
             <button type="button" class="solid" id="open-electorate-modal">Add electorate</button>
           </div>
@@ -355,7 +360,7 @@
         <div id="electorate-detail" class="electorate-detail">
           <article class="panel el-empty">
             <h2>Local overview</h2>
-            <p class="hint">Click an electorate to see who it backs, who dominates it, and to spin its own election wheel.</p>
+            <p class="hint">Click an electorate to see its local table, add or remove seats, and spin its own election wheel.</p>
           </article>
         </div>
       </div>
@@ -440,9 +445,9 @@
 
   <div id="ministry-tip" class="ministry-tip" hidden></div>
 
-  <script src="js/events.js?v=electorates"></script>
-  <script src="js/estimator.js?v=electorates"></script>
-  <script src="js/charts.js?v=electorates"></script>
-  <script src="js/app.js?v=electorates"></script>
+  <script src="js/events.js?v=el-seats"></script>
+  <script src="js/estimator.js?v=el-seats"></script>
+  <script src="js/charts.js?v=el-seats"></script>
+  <script src="js/app.js?v=el-seats"></script>
 </body>
 </html>
